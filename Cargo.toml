@@ -1,0 +1,17 @@
+[package]
+name = "gpu_bandwidth"
+version = "0.1.0"
+authors = ["Thomas Niederberger <thomas@niederb.ch>"]
+edition = "2018"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ocl = "0.19.3"
+colorify = "*"
+image = "*"
+time = "0.1.42"
+ocl-extras = "0.1.1"
+prettytable-rs = "0.8.0"
+uom = "0.25.0"
