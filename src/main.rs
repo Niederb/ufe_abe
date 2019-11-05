@@ -39,7 +39,7 @@ fn timed(tries: usize) -> ocl::Result<()> {
         let ocl_pq = queue.dims(data_size).build()?;
 
         let mut duration = Duration::new(0, 0);
-        for _j in 1..tries {
+        for _j in 0..tries {
             {
                 let kern_start = Instant::now();
                 let _buffer: Buffer<u8> = ocl_pq.create_buffer()?;
