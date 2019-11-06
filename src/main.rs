@@ -1,26 +1,20 @@
 use std::time::{Duration, Instant};
-extern crate ocl;
-extern crate ocl_extras;
-extern crate time;
+
+use ocl::{Buffer, ProQue, enums::MemInfo};
 
 #[macro_use]
 extern crate clap;
-
 use clap::{App, Arg};
 
 #[macro_use]
 extern crate prettytable;
 use prettytable::Table;
 
-extern crate uom;
-
 use uom::si::f32::*;
 use uom::si::information::{byte, megabyte};
 use uom::si::time::{millisecond, second};
 
-use ocl::{Buffer, ProQue};
-
-fn timed(tries: usize) -> ocl::Result<()> {
+fn timed(end_power: usize, tries: usize) -> ocl::Result<()> {
     let kernel_src = "";
     let mut table = Table::new();
     table.add_row(row![
@@ -33,7 +27,8 @@ fn timed(tries: usize) -> ocl::Result<()> {
     let mut queue = ProQue::builder();
     queue.src(kernel_src);
 
-    for i in 1..30 {
+    for i in 0..=end_power {
+        println!("{}", i);
         let data_size: usize = 1 << i;
 
         let ocl_pq = queue.dims(data_size).build()?;
@@ -43,6 +38,7 @@ fn timed(tries: usize) -> ocl::Result<()> {
             {
                 let kern_start = Instant::now();
                 let _buffer: Buffer<u8> = ocl_pq.create_buffer()?;
+                //println!("{:?}", _buffer.mem_info(MemInfo::Type));
                 duration += kern_start.elapsed();
             }
         }
@@ -75,12 +71,19 @@ pub fn main() {
                 .help("The number of tries for each test")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("end-power")
+                .short("e")
+                .help("At which power of two to stop the test")
+                .takes_value(true),
+        )
         .get_matches();
 
     let tries = value_t!(matches, "tries", usize).unwrap_or(50);
+    let end_power = value_t!(matches, "end-power", usize).unwrap_or(30);
     println!("Number of tries per test: {}", tries);
 
-    match timed(tries) {
+    match timed(end_power, tries) {
         Ok(_) => (),
         Err(err) => println!("{}", err),
     }
