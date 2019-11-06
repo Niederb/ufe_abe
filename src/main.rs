@@ -14,6 +14,9 @@ use uom::si::f32::*;
 use uom::si::information::{byte, megabyte};
 use uom::si::time::{millisecond, second};
 
+extern crate pbr;
+use pbr::ProgressBar;
+
 fn timed(end_power: usize, tries: usize) -> ocl::Result<()> {
     let kernel_src = "";
     let mut table = Table::new();
@@ -27,8 +30,10 @@ fn timed(end_power: usize, tries: usize) -> ocl::Result<()> {
     let mut queue = ProQue::builder();
     queue.src(kernel_src);
 
+    let mut pb = ProgressBar::new((end_power + 1) as u64);
+    pb.format("╢▌▌░╟");
     for i in 0..=end_power {
-        println!("{}", i);
+        //println!("{}", i);
         let data_size: usize = 1 << i;
 
         let ocl_pq = queue.dims(data_size).build()?;
@@ -54,7 +59,9 @@ fn timed(end_power: usize, tries: usize) -> ocl::Result<()> {
             1.0 / seconds_per_try,
             bandwidth
         ]);
+        pb.inc();
     }
+    pb.finish_print("Finished test");
     table.printstd();
 
     Ok(())
