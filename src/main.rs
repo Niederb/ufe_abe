@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use ocl::{Buffer, ProQue, enums::MemInfo};
+use ocl::{builders::BufferBuilder, enums::MemInfo, Buffer, ProQue};
 
 #[macro_use]
 extern crate clap;
@@ -24,30 +24,32 @@ fn timed(end_power: usize, tries: usize) -> ocl::Result<()> {
         "Iteration",
         "Datasize (bytes)",
         "Time (ms)",
-        "Operations/s",
-        "Allocation bandwidth"
+        "Allocations/s",
+        "Allocation bandwidth (MB/s)"
     ]);
     let mut queue = ProQue::builder();
     queue.src(kernel_src);
-
     let mut pb = ProgressBar::new((end_power + 1) as u64);
     pb.format("╢▌▌░╟");
-    for i in 0..=end_power {
-        //println!("{}", i);
-        let data_size: usize = 1 << i;
 
+    for i in 0..=end_power {
+        let data_size: usize = 1 << i;
         let ocl_pq = queue.dims(data_size).build()?;
 
-        let mut duration = Duration::new(0, 0);
+        let mut allocation_duration = Duration::new(0, 0);
+        let mut upload_duration = Duration::new(0, 0);
+        let mut download_duration = Duration::new(0, 0);
+        let mut host_memory = vec![0u8; data_size];
         for _j in 0..tries {
             {
-                let kern_start = Instant::now();
-                let _buffer: Buffer<u8> = ocl_pq.create_buffer()?;
-                //println!("{:?}", _buffer.mem_info(MemInfo::Type));
-                duration += kern_start.elapsed();
+                let mut _buffer: Buffer<u8> = ocl_pq.create_buffer()?;
+                let start = Instant::now();
+                //_buffer.write(&host_memory).enq()?;
+                _buffer.read(&mut host_memory).enq()?;
+                allocation_duration += start.elapsed();
             }
         }
-        let seconds = duration.as_secs_f32();
+        let seconds = allocation_duration.as_secs_f32();
         let seconds_per_try = seconds / tries as f32;
         let time = Time::new::<second>(seconds / tries as f32);
         let bytes = Information::new::<byte>(data_size as f32);
@@ -89,6 +91,7 @@ pub fn main() {
     let tries = value_t!(matches, "tries", usize).unwrap_or(50);
     let end_power = value_t!(matches, "end-power", usize).unwrap_or(30);
     println!("Number of tries per test: {}", tries);
+    println!("Running {} tests...", (end_power + 1));
 
     match timed(end_power, tries) {
         Ok(_) => (),
