@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
+use ocl::flags::{CommandQueueProperties, MemFlags};
 use ocl::{builders::BufferBuilder, enums::MemInfo, Buffer, ProQue};
-use ocl::flags::{MemFlags, CommandQueueProperties};
 
 #[macro_use]
 extern crate clap;
@@ -21,6 +21,7 @@ use pbr::ProgressBar;
 struct Configuration {
     end_power: usize,
     tries: usize,
+    memory_flags: MemFlags,
 }
 
 fn timed(config: Configuration) -> ocl::Result<()> {
@@ -38,9 +39,6 @@ fn timed(config: Configuration) -> ocl::Result<()> {
     let mut pb = ProgressBar::new((config.end_power + 1) as u64);
     pb.format("╢▌▌░╟");
 
-    let src_buf_flags = MemFlags::new();//.alloc_host_ptr().write_only().host_read_only();
-    let dst_buf_flags = MemFlags::new().alloc_host_ptr().write_only().host_read_only();
-
     for i in 0..=config.end_power {
         let data_size: usize = 1 << i;
         let ocl_pq = queue.dims(data_size).build()?;
@@ -52,8 +50,9 @@ fn timed(config: Configuration) -> ocl::Result<()> {
         for j in 0..config.tries {
             {
                 // let mut buffer: Buffer<u8> = ocl_pq.create_buffer()?;
-                let buffer: Buffer<u8> = ocl_pq.buffer_builder()
-                    .flags(src_buf_flags)
+                let buffer: Buffer<u8> = ocl_pq
+                    .buffer_builder()
+                    .flags(config.memory_flags)
                     .fill_val(0)
                     .build()?;
                 let start = Instant::now();
@@ -63,7 +62,6 @@ fn timed(config: Configuration) -> ocl::Result<()> {
             }
         }
         let seconds = allocation_duration.as_secs_f32();
-        //let tries = tries - 2;
         let seconds_per_try = seconds / config.tries as f32;
         let time = Time::new::<second>(seconds / config.tries as f32);
         let bytes = Information::new::<byte>(data_size as f32);
@@ -100,12 +98,30 @@ pub fn main() {
                 .help("At which power of two to stop the test")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("pinned")
+                .short("p")
+                .help("Use pinned host memory"),
+        )
         .get_matches();
 
     let tries = value_t!(matches, "tries", usize).unwrap_or(50);
     let end_power = value_t!(matches, "end-power", usize).unwrap_or(30);
-    
-    let config = Configuration { end_power, tries };
+
+    let memory_flags = if matches.is_present("pinned") {
+        MemFlags::new()
+            .alloc_host_ptr()
+            .write_only()
+            .host_read_only()
+    } else {
+        MemFlags::new()
+    };
+
+    let config = Configuration {
+        end_power,
+        tries,
+        memory_flags,
+    };
     println!("Number of tries per test: {}", config.tries);
     println!("Running {} tests...", (config.end_power + 1));
 
