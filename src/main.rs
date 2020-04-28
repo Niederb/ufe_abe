@@ -57,6 +57,7 @@ async fn run(config: Configuration) {
         let data_size = (2.0 as f32).powi(i as i32) as usize;
         let numbers = vec![number as u8; data_size];
         // To see the output, run `RUST_LOG=info cargo run --example hello-compute`.
+        let start_time = std::time::Instant::now();
         let mut total_time = Duration::new(0, 0);
         let mut max_time = Duration::new(0, 0);
         let mut min_time = Duration::new(std::u64::MAX, 0);
@@ -75,6 +76,7 @@ async fn run(config: Configuration) {
             };
             //std::thread::sleep(Duration::from_millis(10));
         }
+        //let total_time = start_time.elapsed();
         let data_size = data_size as f32 / 1024.0 / 1024.0;
         let avg_time_millis = total_time.as_millis() as f32 / config.tries as f32;
         let bandwidth = data_size / avg_time_millis * 1000.0;
@@ -96,12 +98,38 @@ async fn execute_gpu(device: &wgpu::Device, queue: &wgpu::Queue, numbers: &[u8])
     let slice_size = numbers.len() * std::mem::size_of::<u8>();
     let size = slice_size as wgpu::BufferAddress;
 
-    let start = std::time::Instant::now();
-    let staging_buffer = device.create_buffer_with_data(
+    let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        size,
+        usage: wgpu::BufferUsage::STORAGE
+            | wgpu::BufferUsage::COPY_DST
+            | wgpu::BufferUsage::COPY_SRC
+            | wgpu::BufferUsage::READ_ALL
+            | wgpu::BufferUsage::WRITE_ALL,
+        label: None,
+    });
+    device.poll(wgpu::Maintain::Wait);
+    
+    let end_time = {    
+        let start = std::time::Instant::now();
+        let write_result = staging_buffer.map_write(
+            0,
+            size
+        );
+        
+        device.poll(wgpu::Maintain::Wait);
+        
+        if let Ok(mut mapping) = write_result.await {
+            
+            mapping.as_slice().copy_from_slice(numbers);
+        }
+        device.poll(wgpu::Maintain::Wait);
+        start.elapsed()
+    };
+    /*let staging_buffer = device.create_buffer_with_data(
         bytemuck::cast_slice(&numbers),
         wgpu::BufferUsage::MAP_READ | wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::COPY_SRC,
-    );
-    let end_time = start.elapsed();
+    );*/
+    
 
     let storage_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         size,
@@ -120,7 +148,7 @@ async fn execute_gpu(device: &wgpu::Device, queue: &wgpu::Queue, numbers: &[u8])
     queue.submit(&[encoder.finish()]);
 
     // Note that we're not calling `.await` here.
-    let buffer_future = staging_buffer.map_read(0, size);
+    //let buffer_future = staging_buffer.map_read(0, size);
 
     // Poll the device in a blocking manner so that our future resolves.
     // In an actual application, `device.poll(...)` should
@@ -128,7 +156,7 @@ async fn execute_gpu(device: &wgpu::Device, queue: &wgpu::Queue, numbers: &[u8])
 
     device.poll(wgpu::Maintain::Wait);
 
-    let result = buffer_future.await;
+    /*let result = buffer_future.await;
 
     if let Ok(mapping) = result {
         /*mapping
@@ -138,7 +166,7 @@ async fn execute_gpu(device: &wgpu::Device, queue: &wgpu::Queue, numbers: &[u8])
         .collect()*/
     } else {
         panic!("failed to run compute on gpu!")
-    }
+    }*/
     //drop(staging_buffer);
     //drop(storage_buffer);
 
