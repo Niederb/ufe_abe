@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[macro_use]
 extern crate clap;
@@ -20,7 +20,6 @@ struct Configuration {
 }
 
 async fn run(config: Configuration) {
-
     let adapter = wgpu::Adapter::request(
         &wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::Default,
@@ -43,7 +42,7 @@ async fn run(config: Configuration) {
     let mut table = Table::new();
     table.add_row(row![
         "Iteration",
-        "Datasize (bytes)",
+        "Datasize (MB)",
         "min Time (ms)",
         "max (ms)",
         "avg Time (ms)",
@@ -54,55 +53,56 @@ async fn run(config: Configuration) {
     pb.format("╢▌▌░╟");
 
     let number = 7;
-    for i in 0..config.end_power {
+    for i in 0..=config.end_power {
         let data_size = (2.0 as f32).powi(i as i32) as usize;
         let numbers = vec![number as u8; data_size];
         // To see the output, run `RUST_LOG=info cargo run --example hello-compute`.
         let mut total_time = Duration::new(0, 0);
         let mut max_time = Duration::new(0, 0);
-        let mut min_time = Duration::new(1000000000, 0);
-        for _ in 0..config.tries {
+        let mut min_time = Duration::new(std::u64::MAX, 0);
+        for _ in 1..=config.tries {
             let end_time = execute_gpu(&device, &queue, &numbers).await;
             total_time += end_time;
             max_time = if end_time > max_time {
-                    end_time
-                } else {
-                    max_time
-                };
+                end_time
+            } else {
+                max_time
+            };
             min_time = if end_time < min_time {
-                    end_time
-                } else {
-                    min_time
-                };                
+                end_time
+            } else {
+                min_time
+            };
             //std::thread::sleep(Duration::from_millis(10));
         }
-        let bandwidth = data_size as f32 / 1024.0 / 1024.0 / total_time.as_millis() as f32 * 1000.0 * config.tries as f32;
+        let data_size = data_size as f32 / 1024.0 / 1024.0;
+        let avg_time_millis = total_time.as_millis() as f32 / config.tries as f32;
+        let bandwidth = data_size / avg_time_millis * 1000.0;
         table.add_row(row![
             i,
-            data_size / 1024 / 1024,
+            data_size,
             min_time.as_millis(),
             max_time.as_millis(),
-            total_time.as_millis() as f32 / config.tries as f32,
+            avg_time_millis,
             bandwidth
         ]);
         pb.inc();
-        
     }
     pb.finish_print("Finished test");
     table.printstd();
 }
 
-async fn execute_gpu(device: &wgpu::Device, queue: &wgpu::Queue, numbers: &Vec<u8>) -> Duration {
+async fn execute_gpu(device: &wgpu::Device, queue: &wgpu::Queue, numbers: &[u8]) -> Duration {
     let slice_size = numbers.len() * std::mem::size_of::<u8>();
     let size = slice_size as wgpu::BufferAddress;
-    
+
     let start = std::time::Instant::now();
     let staging_buffer = device.create_buffer_with_data(
         bytemuck::cast_slice(&numbers),
         wgpu::BufferUsage::MAP_READ | wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::COPY_SRC,
     );
     let end_time = start.elapsed();
-    
+
     let storage_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         size,
         usage: wgpu::BufferUsage::STORAGE
@@ -125,24 +125,23 @@ async fn execute_gpu(device: &wgpu::Device, queue: &wgpu::Queue, numbers: &Vec<u
     // Poll the device in a blocking manner so that our future resolves.
     // In an actual application, `device.poll(...)` should
     // be called in an event loop or on another thread.
-    
+
     device.poll(wgpu::Maintain::Wait);
-    
+
     let result = buffer_future.await;
-    
 
     if let Ok(mapping) = result {
         /*mapping
-            .as_slice()
-            .chunks_exact(4)
-            .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
-            .collect()*/
+        .as_slice()
+        .chunks_exact(4)
+        .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
+        .collect()*/
     } else {
         panic!("failed to run compute on gpu!")
     }
     //drop(staging_buffer);
     //drop(storage_buffer);
-    
+
     end_time
 }
 
@@ -182,15 +181,12 @@ pub fn main() {
     let tries = value_t!(matches, "tries", usize).unwrap_or(50);
     let end_power = value_t!(matches, "end-power", usize).unwrap_or(28);
 
-    let config = Configuration {
-        end_power,
-        tries,
-    };
+    let config = Configuration { end_power, tries };
     println!("Number of tries per test: {}", config.tries);
     println!("Running {} tests...", (config.end_power + 1));
 
     futures::executor::block_on(run(config));
-/*
+    /*
     match timed(config) {
         Ok(_) => (),
         Err(err) => println!("{}", err),
