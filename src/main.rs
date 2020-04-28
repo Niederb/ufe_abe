@@ -56,7 +56,7 @@ async fn run(config: Configuration) {
     let number = 7;
     for i in 0..config.end_power {
         let data_size = (2.0 as f32).powi(i as i32) as usize;
-        let numbers = vec![number; data_size];
+        let numbers = vec![number as u8; data_size];
         // To see the output, run `RUST_LOG=info cargo run --example hello-compute`.
         let mut total_time = Duration::new(0, 0);
         let mut max_time = Duration::new(0, 0);
@@ -74,6 +74,7 @@ async fn run(config: Configuration) {
                 } else {
                     min_time
                 };                
+            //std::thread::sleep(Duration::from_millis(10));
         }
         let bandwidth = data_size as f32 / 1024.0 / 1024.0 / total_time.as_millis() as f32 * 1000.0 * config.tries as f32;
         table.add_row(row![
@@ -85,13 +86,14 @@ async fn run(config: Configuration) {
             bandwidth
         ]);
         pb.inc();
+        
     }
     pb.finish_print("Finished test");
     table.printstd();
 }
 
-async fn execute_gpu(device: &wgpu::Device, queue: &wgpu::Queue, numbers: &Vec<u32>) -> Duration {
-    let slice_size = numbers.len() * std::mem::size_of::<u32>();
+async fn execute_gpu(device: &wgpu::Device, queue: &wgpu::Queue, numbers: &Vec<u8>) -> Duration {
+    let slice_size = numbers.len() * std::mem::size_of::<u8>();
     let size = slice_size as wgpu::BufferAddress;
     
     let start = std::time::Instant::now();
@@ -138,6 +140,9 @@ async fn execute_gpu(device: &wgpu::Device, queue: &wgpu::Queue, numbers: &Vec<u
     } else {
         panic!("failed to run compute on gpu!")
     }
+    //drop(staging_buffer);
+    //drop(storage_buffer);
+    
     end_time
 }
 
