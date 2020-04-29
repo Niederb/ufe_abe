@@ -1,10 +1,8 @@
 use std::time::Duration;
 use structopt::StructOpt;
-#[macro_use]
-extern crate prettytable;
-use prettytable::Table;
 
-extern crate pbr;
+use prettytable::{Table, row, cell};
+
 use pbr::ProgressBar;
 
 use simplelog::*;
