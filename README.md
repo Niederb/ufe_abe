@@ -1,4 +1,4 @@
-# gpu_bandwidth
+# ufe_abe
 Small tool to measure the bandwith of installed GPUs
 
 Features:
