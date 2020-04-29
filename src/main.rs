@@ -53,7 +53,9 @@ fn get_default_sizes() -> Vec<usize> {
 }
 
 fn get_power_two_sizes(max_power: u32) -> Vec<usize> {
-    (0..=max_power).map(| power| (2.0 as f32).powi(power as i32) as usize).collect()
+    (0..=max_power)
+        .map(|power| (2.0 as f32).powi(power as i32) as usize)
+        .collect()
     //let data_size = (2.0 as f32).powi(i as i32) as usize;
 }
 
@@ -89,7 +91,7 @@ async fn run(config: Configuration) {
 
     let data_sizes = get_default_sizes();
     //let data_sizes = get_power_two_sizes(config.end_power);
-    
+
     println!("Running {} tests...", data_sizes.len());
     let mut pb = ProgressBar::new(data_sizes.len() as u64);
     pb.format("╢▌▌░╟");
@@ -134,7 +136,12 @@ async fn run(config: Configuration) {
     table.printstd();
 }
 
-async fn execute_gpu(expected_sum: usize, device: &wgpu::Device, queue: &wgpu::Queue, host_data: &[u8]) -> Duration {
+async fn execute_gpu(
+    expected_sum: usize,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    host_data: &[u8],
+) -> Duration {
     let slice_size = host_data.len() * std::mem::size_of::<u8>();
     let size = slice_size as wgpu::BufferAddress;
 
@@ -148,16 +155,13 @@ async fn execute_gpu(expected_sum: usize, device: &wgpu::Device, queue: &wgpu::Q
         label: None,
     });
     device.poll(wgpu::Maintain::Wait);
-    
-    let end_time = {    
+
+    let end_time = {
         let start = std::time::Instant::now();
-        let write_result = upload_buffer.map_write(
-            0,
-            size
-        );
-        
+        let write_result = upload_buffer.map_write(0, size);
+
         device.poll(wgpu::Maintain::Wait);
-        
+
         if let Ok(mut mapping) = write_result.await {
             mapping.as_slice().copy_from_slice(host_data);
         }
@@ -168,7 +172,6 @@ async fn execute_gpu(expected_sum: usize, device: &wgpu::Device, queue: &wgpu::Q
         bytemuck::cast_slice(&numbers),
         wgpu::BufferUsage::MAP_READ | wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::COPY_SRC,
     );*/
-    
 
     let download_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         size,
@@ -182,15 +185,12 @@ async fn execute_gpu(expected_sum: usize, device: &wgpu::Device, queue: &wgpu::Q
     let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     encoder.copy_buffer_to_buffer(&upload_buffer, 0, &download_buffer, 0, size);
-
     //encoder.copy_buffer_to_buffer(&download_buffer, 0, &upload_buffer, 0, size);
 
     queue.submit(&[encoder.finish()]);
 
     let buffer_future = download_buffer.map_read(0, size);
-
     device.poll(wgpu::Maintain::Wait);
-
     let result = buffer_future.await;
 
     if let Ok(mapping) = result {
@@ -203,9 +203,6 @@ async fn execute_gpu(expected_sum: usize, device: &wgpu::Device, queue: &wgpu::Q
     } else {
         panic!("failed to run compute on gpu!");
     }
-    //drop(staging_buffer);
-    //drop(storage_buffer);
-
     end_time
 }
 
@@ -217,22 +214,10 @@ pub fn main() {
             Config::default(),
             File::create("log_file.txt").unwrap(),
         ),
-    ]).unwrap();
-
-    /*let matches = App::new("GPU bandwidth test")
-        .version(crate_version!())
-        .author(crate_authors!())
-        .about("Measure GPU bandwidth")
-        .arg(
-            Arg::with_name("pinned")
-                .short("p")
-                .help("Use pinned host memory"),
-        )
-        .get_matches();*/
+    ])
+    .unwrap();
 
     let config = Configuration::from_args();
-
-    println!("Number of tries per test: {}", config.tries);
-
+    println!("{:?}", config);
     futures::executor::block_on(run(config));
 }
