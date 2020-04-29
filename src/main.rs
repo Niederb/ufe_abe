@@ -1,9 +1,5 @@
 use std::time::Duration;
-
-#[macro_use]
-extern crate clap;
-use clap::{App, Arg};
-
+use structopt::StructOpt;
 #[macro_use]
 extern crate prettytable;
 use prettytable::Table;
@@ -14,9 +10,20 @@ use pbr::ProgressBar;
 use simplelog::*;
 use std::fs::File;
 
+/// Configuration struct gpu benchmarking
+#[derive(StructOpt, Debug)]
+#[structopt(author, about)]
 struct Configuration {
+    /// At which power of two to stop the test
+    #[structopt(long, short = "n", default_value = "25")]
     end_power: usize,
+
+    /// The number of iterations per data-size
+    #[structopt(long, short = "t", default_value = "25")]
     tries: usize,
+
+    /// Whether to verify the data of the copy. Can take a long time.
+    #[structopt(long, short = "v")]
     verify: bool,
 }
 
@@ -212,33 +219,19 @@ pub fn main() {
         ),
     ]).unwrap();
 
-    let matches = App::new("GPU bandwidth test")
+    /*let matches = App::new("GPU bandwidth test")
         .version(crate_version!())
         .author(crate_authors!())
         .about("Measure GPU bandwidth")
-        .arg(
-            Arg::with_name("tries")
-                .short("n")
-                .help("The number of tries for each test")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("end-power")
-                .short("e")
-                .help("At which power of two to stop the test")
-                .takes_value(true),
-        )
         .arg(
             Arg::with_name("pinned")
                 .short("p")
                 .help("Use pinned host memory"),
         )
-        .get_matches();
+        .get_matches();*/
 
-    let tries = value_t!(matches, "tries", usize).unwrap_or(50);
-    let end_power = value_t!(matches, "end-power", usize).unwrap_or(28);
+    let config = Configuration::from_args();
 
-    let config = Configuration { end_power, tries, verify: true };
     println!("Number of tries per test: {}", config.tries);
 
     futures::executor::block_on(run(config));
