@@ -5,9 +5,6 @@ use prettytable::{Table, row, cell};
 
 use pbr::ProgressBar;
 
-use simplelog::*;
-use std::fs::File;
-
 /// Configuration struct gpu benchmarking
 #[derive(StructOpt, Debug)]
 #[structopt(author, about)]
@@ -205,16 +202,6 @@ async fn execute_gpu(
 }
 
 pub fn main() {
-    CombinedLogger::init(vec![
-        TermLogger::new(LevelFilter::Error, Config::default(), TerminalMode::Mixed).unwrap(),
-        WriteLogger::new(
-            LevelFilter::Error,
-            Config::default(),
-            File::create("log_file.txt").unwrap(),
-        ),
-    ])
-    .unwrap();
-
     let config = Configuration::from_args();
     println!("{:?}", config);
     futures::executor::block_on(run(config));
