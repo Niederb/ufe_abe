@@ -92,7 +92,8 @@ async fn run(config: Configuration) {
     pb.format("╢▌▌░╟");
 
     for (iteration, data_size) in data_sizes.iter().enumerate() {
-        let numbers = vec![iteration as u8; *data_size];
+        let mut upload_data = vec![iteration as u8; *data_size];
+        let mut download_data = vec![0 as u8; *data_size];
 
         let start_time = std::time::Instant::now();
         let mut total_time = Duration::new(0, 0);
@@ -100,7 +101,7 @@ async fn run(config: Configuration) {
         let mut min_time = Duration::new(std::u64::MAX, 0);
         for _ in 1..=config.tries {
             let expected_sum = iteration * data_size;
-            let end_time = execute_gpu(expected_sum, &device, &queue, &numbers).await;
+            let end_time = execute_gpu(expected_sum, &device, &queue, &mut upload_data, &mut download_data).await;
             total_time += end_time;
             max_time = if end_time > max_time {
                 end_time
@@ -135,9 +136,10 @@ async fn execute_gpu(
     expected_sum: usize,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    host_data: &[u8],
+    host_data_upload: &[u8],
+    host_data_download: &mut [u8]
 ) -> Duration {
-    let slice_size = host_data.len() * std::mem::size_of::<u8>();
+    let slice_size = host_data_upload.len() * std::mem::size_of::<u8>();
     let size = slice_size as wgpu::BufferAddress;
 
     let upload_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -145,60 +147,71 @@ async fn execute_gpu(
         usage: wgpu::BufferUsage::STORAGE
             | wgpu::BufferUsage::COPY_DST
             | wgpu::BufferUsage::COPY_SRC
-            | wgpu::BufferUsage::READ_ALL
-            | wgpu::BufferUsage::WRITE_ALL,
+            | wgpu::BufferUsage::MAP_READ
+            | wgpu::BufferUsage::MAP_WRITE,
         label: None,
     });
     device.poll(wgpu::Maintain::Wait);
 
-    let end_time = {
+    let end_time = {       
         let start = std::time::Instant::now();
         let write_result = upload_buffer.map_write(0, size);
 
         device.poll(wgpu::Maintain::Wait);
 
         if let Ok(mut mapping) = write_result.await {
-            mapping.as_slice().copy_from_slice(host_data);
+            device.poll(wgpu::Maintain::Wait);
+            mapping.as_slice().copy_from_slice(host_data_upload);
         }
         device.poll(wgpu::Maintain::Wait);
         start.elapsed()
     };
-    /*let upload_buffer = device.create_buffer_with_data(
-        bytemuck::cast_slice(&numbers),
-        wgpu::BufferUsage::MAP_READ | wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::COPY_SRC,
-    );*/
-
     let download_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         size,
         usage: wgpu::BufferUsage::STORAGE
             | wgpu::BufferUsage::COPY_DST
             | wgpu::BufferUsage::COPY_SRC
-            | wgpu::BufferUsage::READ_ALL,
+            | wgpu::BufferUsage::MAP_READ
+            | wgpu::BufferUsage::MAP_WRITE,
         label: None,
     });
+    device.poll(wgpu::Maintain::Wait);
 
-    let mut encoder =
+    /*let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    encoder.copy_buffer_to_buffer(&upload_buffer, 0, &download_buffer, 0, size);
+    encoder.copy_buffer_to_buffer(&upload_buffer, 0, &download_buffer, 0, size);*/
     //encoder.copy_buffer_to_buffer(&download_buffer, 0, &upload_buffer, 0, size);
 
-    queue.submit(&[encoder.finish()]);
-
-    let buffer_future = download_buffer.map_read(0, size);
+    //queue.submit(&[encoder.finish()]);
     device.poll(wgpu::Maintain::Wait);
-    let result = buffer_future.await;
 
-    if let Ok(mapping) = result {
-        let mut total: usize = 0;
-        for item in mapping.as_slice() {
-            total += *item as usize;
-        }
-        println!("{}/{}", total, expected_sum);
-        assert!(total == expected_sum);
-    } else {
-        panic!("failed to run compute on gpu!");
-    }
-    end_time
+    let end_time2 = {
+        let start = std::time::Instant::now();
+        let buffer_future = download_buffer.map_read(0, size);
+        device.poll(wgpu::Maintain::Wait);
+
+        let result = buffer_future.await;
+        let mut end_time = start.elapsed();
+        if let Ok(mapping) = result {
+            host_data_download.copy_from_slice(mapping.as_slice());
+            end_time = start.elapsed();
+            //mapping.as_slice().copy_from_slice(download_data);       
+            //download_data.copy_from_slice(host_data);
+            /*unsafe {
+                //std::ptr::copy_nonoverlapping(download_data.as_ptr(), host_data.as_mut_ptr(), size as usize);
+                std::ptr::copy_nonoverlapping(host_data.as_ptr(), download_data.as_mut_ptr(), size as usize);
+            }*/
+            //host_data.copy_from_slice(download_data);
+            /*let mut total: usize = 0;
+            for item in mapping.as_slice() {
+                total += *item as usize;
+            }
+            assert!(total == expected_sum);*/
+        } 
+        device.poll(wgpu::Maintain::Wait);
+        end_time
+     };
+     end_time
 }
 
 pub fn main() {
