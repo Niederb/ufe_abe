@@ -1,7 +1,7 @@
 use std::time::Duration;
 use structopt::StructOpt;
 
-use prettytable::{Table, row, cell};
+use prettytable::{cell, row, Table};
 
 use pbr::ProgressBar;
 
@@ -101,7 +101,15 @@ async fn run(config: Configuration) {
         let mut min_time = Duration::new(std::u64::MAX, 0);
         for _ in 1..=config.tries {
             let expected_sum = iteration * data_size;
-            let end_time = execute_gpu(expected_sum, &device, &queue, &mut upload_data, &mut download_data).await;
+            let (upload_time, download_time) = execute_gpu(
+                expected_sum,
+                &device,
+                &queue,
+                &mut upload_data,
+                &mut download_data,
+            )
+            .await;
+            let end_time = download_time;
             total_time += end_time;
             max_time = if end_time > max_time {
                 end_time
@@ -137,8 +145,8 @@ async fn execute_gpu(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     host_data_upload: &[u8],
-    host_data_download: &mut [u8]
-) -> Duration {
+    host_data_download: &mut [u8],
+) -> (Duration, Duration) {
     let slice_size = host_data_upload.len() * std::mem::size_of::<u8>();
     let size = slice_size as wgpu::BufferAddress;
 
@@ -153,7 +161,7 @@ async fn execute_gpu(
     });
     device.poll(wgpu::Maintain::Wait);
 
-    let end_time = {       
+    let upload_time = {
         let start = std::time::Instant::now();
         let write_result = upload_buffer.map_write(0, size);
 
@@ -185,7 +193,7 @@ async fn execute_gpu(
     //queue.submit(&[encoder.finish()]);
     device.poll(wgpu::Maintain::Wait);
 
-    let end_time2 = {
+    let download_time = {
         let start = std::time::Instant::now();
         let buffer_future = download_buffer.map_read(0, size);
         device.poll(wgpu::Maintain::Wait);
@@ -195,7 +203,7 @@ async fn execute_gpu(
         if let Ok(mapping) = result {
             host_data_download.copy_from_slice(mapping.as_slice());
             end_time = start.elapsed();
-            //mapping.as_slice().copy_from_slice(download_data);       
+            //mapping.as_slice().copy_from_slice(download_data);
             //download_data.copy_from_slice(host_data);
             /*unsafe {
                 //std::ptr::copy_nonoverlapping(download_data.as_ptr(), host_data.as_mut_ptr(), size as usize);
@@ -207,11 +215,11 @@ async fn execute_gpu(
                 total += *item as usize;
             }
             assert!(total == expected_sum);*/
-        } 
+        }
         device.poll(wgpu::Maintain::Wait);
         end_time
-     };
-     end_time
+    };
+    (upload_time, download_time)
 }
 
 pub fn main() {
