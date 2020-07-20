@@ -51,13 +51,20 @@ fn get_power_two_sizes(max_power: u32) -> Vec<usize> {
     (0..=max_power)
         .map(|power| (2.0 as f32).powi(power as i32) as usize)
         .collect()
-    //let data_size = (2.0 as f32).powi(i as i32) as usize;
 }
 
 fn get_min_max_avg(values: Vec<Duration>) -> (f32, f32, f32) {
     let sum = values.iter().sum::<Duration>().as_millis();
-    let min = values.iter().min().unwrap_or(&Duration::from_secs(0)).as_millis();
-    let max = values.iter().max().unwrap_or(&Duration::from_secs(0)).as_millis();
+    let min = values
+        .iter()
+        .min()
+        .unwrap_or(&Duration::from_secs(0))
+        .as_millis();
+    let max = values
+        .iter()
+        .max()
+        .unwrap_or(&Duration::from_secs(0))
+        .as_millis();
     (min as f32, max as f32, sum as f32 / values.len() as f32)
 }
 
@@ -97,7 +104,7 @@ async fn run(config: Configuration) {
         "max (ms)",
         "avg Time (ms)",
         "Bandwidth (MB/s)"
-    ]);    
+    ]);
 
     //let data_sizes = get_default_sizes();
     let data_sizes = get_power_two_sizes(config.end_power as u32);
@@ -120,37 +127,28 @@ async fn run(config: Configuration) {
                 &queue,
                 &mut upload_data,
                 &mut download_data,
+                config.verify,
             )
             .await;
             upload_times.push(upload_time);
             download_times.push(download_time);
         }
-        
+
         {
             let (min, max, avg) = get_min_max_avg(upload_times);
             let data_size = *data_size as f32 / 1024.0 / 1024.0;
             let bandwidth = data_size / avg * 1000.0;
-            tables.0.add_row(row![
-                iteration,
-                data_size,
-                min,
-                max,
-                avg,
-                bandwidth
-            ]);
+            tables
+                .0
+                .add_row(row![iteration, data_size, min, max, avg, bandwidth]);
         }
         {
             let (min, max, avg) = get_min_max_avg(download_times);
             let data_size = *data_size as f32 / 1024.0 / 1024.0;
             let bandwidth = data_size / avg * 1000.0;
-            tables.1.add_row(row![
-                iteration,
-                data_size,
-                min,
-                max,
-                avg,
-                bandwidth
-            ]);
+            tables
+                .1
+                .add_row(row![iteration, data_size, min, max, avg, bandwidth]);
         }
         pb.inc();
     }
@@ -168,6 +166,7 @@ async fn execute_gpu(
     queue: &wgpu::Queue,
     host_data_upload: &[u8],
     host_data_download: &mut [u8],
+    verify: bool,
 ) -> (Duration, Duration) {
     let slice_size = host_data_upload.len() * std::mem::size_of::<u8>();
     let size = slice_size as wgpu::BufferAddress;
@@ -231,11 +230,13 @@ async fn execute_gpu(
                 std::ptr::copy_nonoverlapping(host_data.as_ptr(), download_data.as_mut_ptr(), size as usize);
             }*/
             //host_data.copy_from_slice(download_data);
-            let mut total: usize = 0;
-            for item in mapping.as_slice() {
-                total += *item as usize;
+            if verify {
+                let mut total: usize = 0;
+                for item in mapping.as_slice() {
+                    total += *item as usize;
+                }
+                assert!(total == expected_sum);
             }
-            assert!(total == expected_sum);
         }
         device.poll(wgpu::Maintain::Wait);
         end_time
