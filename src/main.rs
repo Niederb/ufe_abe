@@ -218,16 +218,11 @@ async fn execute_gpu(
 
         let result = buffer_future.await;
         let mut end_time = start.elapsed();
+
         if let Ok(mapping) = result {
             host_data_download.copy_from_slice(mapping.as_slice());
             end_time = start.elapsed();
-            //mapping.as_slice().copy_from_slice(host_data_download);
-            //download_data.copy_from_slice(host_data);
-            /*unsafe {
-                //std::ptr::copy_nonoverlapping(download_data.as_ptr(), host_data.as_mut_ptr(), size as usize);
-                std::ptr::copy_nonoverlapping(host_data.as_ptr(), download_data.as_mut_ptr(), size as usize);
-            }*/
-            //host_data.copy_from_slice(download_data);
+
             if verify {
                 let mut total: usize = 0;
                 for item in mapping.as_slice() {
