@@ -14,7 +14,7 @@ struct Configuration {
     end_power: usize,
 
     /// The number of iterations per data-size
-    #[structopt(long, short = "t", default_value = "25")]
+    #[structopt(long, short = "t", default_value = "5")]
     tries: usize,
 
     /// Whether to verify the data of the copy. Can take a long time.
@@ -54,6 +54,13 @@ fn get_power_two_sizes(max_power: u32) -> Vec<usize> {
     //let data_size = (2.0 as f32).powi(i as i32) as usize;
 }
 
+fn get_min_max_avg(values: Vec<Duration>) -> (f32, f32, f32) {
+    let sum = values.iter().sum::<Duration>().as_millis();
+    let min = values.iter().min().unwrap_or(&Duration::from_secs(0)).as_millis();
+    let max = values.iter().max().unwrap_or(&Duration::from_secs(0)).as_millis();
+    (min as f32, max as f32, sum as f32 / values.len() as f32)
+}
+
 async fn run(config: Configuration) {
     let adapter = wgpu::Adapter::request(
         &wgpu::RequestAdapterOptions {
@@ -74,8 +81,8 @@ async fn run(config: Configuration) {
         })
         .await;
 
-    let mut table = Table::new();
-    table.add_row(row![
+    let mut tables = (Table::new(), Table::new());
+    tables.0.add_row(row![
         "Iteration",
         "Datasize (MB)",
         "min Time (ms)",
@@ -83,9 +90,17 @@ async fn run(config: Configuration) {
         "avg Time (ms)",
         "Bandwidth (MB/s)"
     ]);
+    tables.1.add_row(row![
+        "Iteration",
+        "Datasize (MB)",
+        "min Time (ms)",
+        "max (ms)",
+        "avg Time (ms)",
+        "Bandwidth (MB/s)"
+    ]);    
 
-    let data_sizes = get_default_sizes();
-    //let data_sizes = get_power_two_sizes(config.end_power);
+    //let data_sizes = get_default_sizes();
+    let data_sizes = get_power_two_sizes(config.end_power as u32);
 
     println!("Running {} tests...", data_sizes.len());
     let mut pb = ProgressBar::new(data_sizes.len() as u64);
@@ -95,10 +110,8 @@ async fn run(config: Configuration) {
         let mut upload_data = vec![iteration as u8; *data_size];
         let mut download_data = vec![0 as u8; *data_size];
 
-        let start_time = std::time::Instant::now();
-        let mut total_time = Duration::new(0, 0);
-        let mut max_time = Duration::new(0, 0);
-        let mut min_time = Duration::new(std::u64::MAX, 0);
+        let mut upload_times = Vec::with_capacity(config.tries);
+        let mut download_times = Vec::with_capacity(config.tries);
         for _ in 1..=config.tries {
             let expected_sum = iteration * data_size;
             let (upload_time, download_time) = execute_gpu(
@@ -109,35 +122,41 @@ async fn run(config: Configuration) {
                 &mut download_data,
             )
             .await;
-            let end_time = download_time;
-            total_time += end_time;
-            max_time = if end_time > max_time {
-                end_time
-            } else {
-                max_time
-            };
-            min_time = if end_time < min_time {
-                end_time
-            } else {
-                min_time
-            };
+            upload_times.push(upload_time);
+            download_times.push(download_time);
         }
-        //let total_time = start_time.elapsed();
-        let data_size = *data_size as f32 / 1024.0 / 1024.0;
-        let avg_time_millis = total_time.as_millis() as f32 / config.tries as f32;
-        let bandwidth = data_size / avg_time_millis * 1000.0;
-        table.add_row(row![
-            iteration,
-            data_size,
-            min_time.as_millis(),
-            max_time.as_millis(),
-            avg_time_millis,
-            bandwidth
-        ]);
+        
+        {
+            let (min, max, avg) = get_min_max_avg(upload_times);
+            let data_size = *data_size as f32 / 1024.0 / 1024.0;
+            let bandwidth = data_size / avg * 1000.0;
+            tables.0.add_row(row![
+                iteration,
+                data_size,
+                min,
+                max,
+                avg,
+                bandwidth
+            ]);
+        }
+        {
+            let (min, max, avg) = get_min_max_avg(download_times);
+            let data_size = *data_size as f32 / 1024.0 / 1024.0;
+            let bandwidth = data_size / avg * 1000.0;
+            tables.1.add_row(row![
+                iteration,
+                data_size,
+                min,
+                max,
+                avg,
+                bandwidth
+            ]);
+        }
         pb.inc();
     }
     pb.finish_print("Finished test");
-    table.printstd();
+    tables.0.printstd();
+    tables.1.printstd();
 }
 
 async fn execute_gpu(
