@@ -68,6 +68,34 @@ fn get_min_max_avg(values: Vec<Duration>) -> (f32, f32, f32) {
     (min as f32, max as f32, sum as f32 / values.len() as f32)
 }
 
+fn create_tables() -> (Table, Table) {
+    let mut tables = (Table::new(), Table::new());
+    tables.0.add_row(row![
+        "Iteration",
+        "Datasize (MB)",
+        "min Time (ms)",
+        "max (ms)",
+        "avg Time (ms)",
+        "Bandwidth (MB/s)"
+    ]);
+    tables.1.add_row(row![
+        "Iteration",
+        "Datasize (MB)",
+        "min Time (ms)",
+        "max (ms)",
+        "avg Time (ms)",
+        "Bandwidth (MB/s)"
+    ]);
+    tables
+}
+
+fn add_measurement(table: &mut Table, iteration: usize, data_size: usize, timings: Vec<Duration>) {
+    let (min, max, avg) = get_min_max_avg(timings);
+    let data_size = data_size as f32 / 1024.0 / 1024.0;
+    let bandwidth = data_size / avg * 1000.0;
+    table.add_row(row![iteration, data_size, min, max, avg, bandwidth]);
+}
+
 async fn run(config: Configuration) {
     let adapter = wgpu::Adapter::request(
         &wgpu::RequestAdapterOptions {
@@ -88,23 +116,7 @@ async fn run(config: Configuration) {
         })
         .await;
 
-    let mut tables = (Table::new(), Table::new());
-    tables.0.add_row(row![
-        "Iteration",
-        "Datasize (MB)",
-        "min Time (ms)",
-        "max (ms)",
-        "avg Time (ms)",
-        "Bandwidth (MB/s)"
-    ]);
-    tables.1.add_row(row![
-        "Iteration",
-        "Datasize (MB)",
-        "min Time (ms)",
-        "max (ms)",
-        "avg Time (ms)",
-        "Bandwidth (MB/s)"
-    ]);
+    let mut tables = create_tables();
 
     //let data_sizes = get_default_sizes();
     let data_sizes = get_power_two_sizes(config.end_power as u32);
@@ -133,23 +145,9 @@ async fn run(config: Configuration) {
             upload_times.push(upload_time);
             download_times.push(download_time);
         }
+        add_measurement(&mut tables.0, iteration, *data_size, upload_times);
+        add_measurement(&mut tables.1, iteration, *data_size, download_times);
 
-        {
-            let (min, max, avg) = get_min_max_avg(upload_times);
-            let data_size = *data_size as f32 / 1024.0 / 1024.0;
-            let bandwidth = data_size / avg * 1000.0;
-            tables
-                .0
-                .add_row(row![iteration, data_size, min, max, avg, bandwidth]);
-        }
-        {
-            let (min, max, avg) = get_min_max_avg(download_times);
-            let data_size = *data_size as f32 / 1024.0 / 1024.0;
-            let bandwidth = data_size / avg * 1000.0;
-            tables
-                .1
-                .add_row(row![iteration, data_size, min, max, avg, bandwidth]);
-        }
         pb.inc();
     }
     pb.finish_print("Finished test");
