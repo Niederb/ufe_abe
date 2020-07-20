@@ -155,7 +155,10 @@ async fn run(config: Configuration) {
         pb.inc();
     }
     pb.finish_print("Finished test");
+    println!("Upload times");
     tables.0.printstd();
+
+    println!("Download times");
     tables.1.printstd();
 }
 
@@ -204,12 +207,11 @@ async fn execute_gpu(
     });
     device.poll(wgpu::Maintain::Wait);
 
-    /*let mut encoder =
+    let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    encoder.copy_buffer_to_buffer(&upload_buffer, 0, &download_buffer, 0, size);*/
-    //encoder.copy_buffer_to_buffer(&download_buffer, 0, &upload_buffer, 0, size);
+    encoder.copy_buffer_to_buffer(&upload_buffer, 0, &download_buffer, 0, size);
 
-    //queue.submit(&[encoder.finish()]);
+    queue.submit(&[encoder.finish()]);
     device.poll(wgpu::Maintain::Wait);
 
     let download_time = {
@@ -222,18 +224,18 @@ async fn execute_gpu(
         if let Ok(mapping) = result {
             host_data_download.copy_from_slice(mapping.as_slice());
             end_time = start.elapsed();
-            //mapping.as_slice().copy_from_slice(download_data);
+            //mapping.as_slice().copy_from_slice(host_data_download);
             //download_data.copy_from_slice(host_data);
             /*unsafe {
                 //std::ptr::copy_nonoverlapping(download_data.as_ptr(), host_data.as_mut_ptr(), size as usize);
                 std::ptr::copy_nonoverlapping(host_data.as_ptr(), download_data.as_mut_ptr(), size as usize);
             }*/
             //host_data.copy_from_slice(download_data);
-            /*let mut total: usize = 0;
+            let mut total: usize = 0;
             for item in mapping.as_slice() {
                 total += *item as usize;
             }
-            assert!(total == expected_sum);*/
+            assert!(total == expected_sum);
         }
         device.poll(wgpu::Maintain::Wait);
         end_time
