@@ -72,6 +72,7 @@ fn create_tables() -> (Table, Table) {
     let mut tables = (Table::new(), Table::new());
     tables.0.add_row(row![
         "Iteration",
+        "Datasize (bytes)",
         "Datasize (MB)",
         "min Time (ms)",
         "max (ms)",
@@ -80,6 +81,7 @@ fn create_tables() -> (Table, Table) {
     ]);
     tables.1.add_row(row![
         "Iteration",
+        "Datasize (bytes)",
         "Datasize (MB)",
         "min Time (ms)",
         "max (ms)",
@@ -91,9 +93,9 @@ fn create_tables() -> (Table, Table) {
 
 fn add_measurement(table: &mut Table, iteration: usize, data_size: usize, timings: Vec<Duration>) {
     let (min, max, avg) = get_min_max_avg(timings);
-    let data_size = data_size as f32 / 1024.0 / 1024.0;
-    let bandwidth = data_size / avg * 1000.0;
-    table.add_row(row![iteration, data_size, min, max, avg, bandwidth]);
+    let data_size_mb = data_size as f32 / 1024.0 / 1024.0;
+    let bandwidth = data_size_mb / avg * 1000.0;
+    table.add_row(row![iteration, data_size, format!("{:.2}", data_size_mb), format!("{:.2}", min), format!("{:.2}", max), format!("{:.2}", avg), format!("{:.2}", bandwidth)]);
 }
 
 async fn run(config: Configuration) {
@@ -191,6 +193,8 @@ async fn execute_gpu(
             data.copy_from_slice(host_data_upload);
             drop(data);
             upload_buffer.unmap();
+        } else {
+            println!("oops");
         }
 
         device.poll(wgpu::Maintain::Wait);
@@ -236,6 +240,8 @@ async fn execute_gpu(
                 }
                 assert!(total == expected_sum);
             }
+        } else {
+            println!("oops");
         }
 
         end_time
