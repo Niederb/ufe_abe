@@ -48,24 +48,23 @@ fn get_default_sizes() -> Vec<usize> {
 }
 
 fn get_power_two_sizes(max_power: u32) -> Vec<usize> {
-    (4..=max_power)
+    (2..=max_power)
         .map(|power| (2.0 as f32).powi(power as i32) as usize)
         .collect()
-    //vec![1024]
 }
 
 fn get_min_max_avg(values: Vec<Duration>) -> (f32, f32, f32) {
-    let sum = values.iter().sum::<Duration>().as_millis();
+    let sum = values.iter().sum::<Duration>().as_secs_f32() * 1000.0;
     let min = values
         .iter()
         .min()
         .unwrap_or(&Duration::from_secs(0))
-        .as_millis();
+        .as_secs_f32() * 1000.0;
     let max = values
         .iter()
         .max()
         .unwrap_or(&Duration::from_secs(0))
-        .as_millis();
+        .as_secs_f32() * 1000.0;
     (min as f32, max as f32, sum as f32 / values.len() as f32)
 }
 
@@ -109,18 +108,21 @@ async fn run(config: Configuration) {
         .unwrap();
 
     let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor {
-            features: wgpu::Features::empty(),
-            limits: wgpu::Limits::default(),
-            shader_validation: true,
-        }, None)
+        .request_device(
+            &wgpu::DeviceDescriptor {
+                features: wgpu::Features::empty(),
+                limits: wgpu::Limits::default(),
+                shader_validation: true,
+            },
+            None,
+        )
         .await
         .unwrap();
 
     let mut tables = create_tables();
 
-    //let data_sizes = get_default_sizes();
-    let data_sizes = get_power_two_sizes(config.end_power as u32);
+    let data_sizes = get_default_sizes();
+    //let data_sizes = get_power_two_sizes(config.end_power as u32);
 
     println!("Running {} tests...", data_sizes.len());
     let mut pb = ProgressBar::new(data_sizes.len() as u64);
@@ -135,7 +137,8 @@ async fn run(config: Configuration) {
         for _ in 1..=config.tries {
             let expected_sum = iteration * data_size;
             let (upload_time, download_time) = execute_gpu(
-                &device, &queue,
+                &device,
+                &queue,
                 expected_sum,
                 &mut upload_data,
                 &mut download_data,
@@ -210,6 +213,7 @@ async fn execute_gpu(
 
     let download_time = {
         let start = std::time::Instant::now();
+        let mut end_time = Duration::from_secs(0);
 
         let buffer_slice = download_buffer.slice(..);
         let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
@@ -220,19 +224,20 @@ async fn execute_gpu(
             let data = buffer_slice.get_mapped_range();
             host_data_download.copy_from_slice(&data);
 
+            drop(data);
+            download_buffer.unmap();
+            device.poll(wgpu::Maintain::Wait);
+            end_time = start.elapsed();
+
             if verify {
                 let mut total: usize = 0;
                 for item in host_data_download {
                     total += *item as usize;
                 }
-                println!("Expected sum: {}", expected_sum);
                 assert!(total == expected_sum);
             }
-            drop(data);
-            download_buffer.unmap();
         }
-        device.poll(wgpu::Maintain::Wait);
-        let end_time = start.elapsed();
+
         end_time
     };
     (upload_time, download_time)
