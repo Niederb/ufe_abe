@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
 
-use prettytable::{cell, row, Table, format};
+use prettytable::{cell, format, row, Table};
 
 use pbr::ProgressBar;
 
@@ -59,12 +59,14 @@ fn get_min_max_avg(values: Vec<Duration>) -> (f32, f32, f32) {
         .iter()
         .min()
         .unwrap_or(&Duration::from_secs(0))
-        .as_secs_f32() * 1000.0;
+        .as_secs_f32()
+        * 1000.0;
     let max = values
         .iter()
         .max()
         .unwrap_or(&Duration::from_secs(0))
-        .as_secs_f32() * 1000.0;
+        .as_secs_f32()
+        * 1000.0;
     (min as f32, max as f32, sum as f32 / values.len() as f32)
 }
 
@@ -97,7 +99,15 @@ fn add_measurement(table: &mut Table, iteration: usize, data_size: usize, timing
     let (min, max, avg) = get_min_max_avg(timings);
     let data_size_mb = data_size as f32 / 1024.0 / 1024.0;
     let bandwidth = data_size_mb / avg * 1000.0;
-    table.add_row(row![iteration, data_size, format!("{:.2}", data_size_mb), format!("{:.2}", min), format!("{:.2}", max), format!("{:.2}", avg), format!("{:.2}", bandwidth)]);
+    table.add_row(row![
+        iteration,
+        data_size,
+        format!("{:.2}", data_size_mb),
+        format!("{:.2}", min),
+        format!("{:.2}", max),
+        format!("{:.2}", avg),
+        format!("{:.2}", bandwidth)
+    ]);
 }
 
 async fn run(config: Configuration) {
@@ -192,11 +202,10 @@ async fn execute_gpu(
     device.poll(wgpu::Maintain::Wait);
 
     let upload_time = {
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let buffer_slice = upload_buffer.slice(..);
         let buffer_future = buffer_slice.map_async(wgpu::MapMode::Write);
         device.poll(wgpu::Maintain::Wait);
-
         if let Ok(_) = buffer_future.await {
             let mut data = buffer_slice.get_mapped_range_mut();
             data.copy_from_slice(host_data_upload);
@@ -206,19 +215,23 @@ async fn execute_gpu(
         } else {
             println!("oops");
         }
-        
+        device.poll(wgpu::Maintain::Wait);
         start.elapsed()
     };
 
-    let mut encoder =
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    encoder.copy_buffer_to_buffer(&upload_buffer, 0, &download_buffer, 0, size);
-    queue.submit(Some(encoder.finish()));
-
-    device.poll(wgpu::Maintain::Wait);
+    // GPU/GPU transfer
+    {
+        let start = Instant::now();
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.copy_buffer_to_buffer(&upload_buffer, 0, &download_buffer, 0, size);
+        queue.submit(Some(encoder.finish()));
+        device.poll(wgpu::Maintain::Wait);
+        start.elapsed()
+    };
 
     let download_time = {
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let mut end_time = Duration::from_secs(0);
 
         let buffer_slice = download_buffer.slice(..);
@@ -242,7 +255,7 @@ async fn execute_gpu(
         } else {
             println!("oops");
         }
-
+        device.poll(wgpu::Maintain::Wait);
         end_time
     };
     (upload_time, download_time)
