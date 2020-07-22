@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use structopt::StructOpt;
 
 use prettytable::{cell, row, Table};
@@ -14,7 +14,7 @@ struct Configuration {
     end_power: usize,
 
     /// The number of iterations per data-size
-    #[structopt(long, short = "t", default_value = "5")]
+    #[structopt(long, short = "t", default_value = "50")]
     tries: usize,
 
     /// Whether to verify the data of the copy. Can take a long time.
@@ -181,25 +181,6 @@ async fn execute_gpu(
         mapped_at_creation: false,
     });
 
-    let upload_time = {
-        let start = std::time::Instant::now();
-        let buffer_slice = upload_buffer.slice(..);
-        let buffer_future = buffer_slice.map_async(wgpu::MapMode::Write);
-        device.poll(wgpu::Maintain::Wait);
-
-        if let Ok(_) = buffer_future.await {
-            device.poll(wgpu::Maintain::Wait);
-            let mut data = buffer_slice.get_mapped_range_mut();
-            data.copy_from_slice(host_data_upload);
-            drop(data);
-            upload_buffer.unmap();
-        } else {
-            println!("oops");
-        }
-
-        device.poll(wgpu::Maintain::Wait);
-        start.elapsed()
-    };
     let download_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         size,
         usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
@@ -207,6 +188,25 @@ async fn execute_gpu(
         mapped_at_creation: false,
     });
     device.poll(wgpu::Maintain::Wait);
+
+    let upload_time = {
+        let start = std::time::Instant::now();
+        let buffer_slice = upload_buffer.slice(..);
+        let buffer_future = buffer_slice.map_async(wgpu::MapMode::Write);
+        device.poll(wgpu::Maintain::Wait);
+
+        if let Ok(_) = buffer_future.await {
+            let mut data = buffer_slice.get_mapped_range_mut();
+            data.copy_from_slice(host_data_upload);
+            device.poll(wgpu::Maintain::Wait);
+            drop(data);
+            upload_buffer.unmap();
+        } else {
+            println!("oops");
+        }
+        
+        start.elapsed()
+    };
 
     let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -221,16 +221,13 @@ async fn execute_gpu(
 
         let buffer_slice = download_buffer.slice(..);
         let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
-
         device.poll(wgpu::Maintain::Wait);
 
         if let Ok(_) = buffer_future.await {
             let data = buffer_slice.get_mapped_range();
             host_data_download.copy_from_slice(&data);
-
             drop(data);
             download_buffer.unmap();
-            device.poll(wgpu::Maintain::Wait);
             end_time = start.elapsed();
 
             if verify {
