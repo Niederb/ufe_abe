@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
 
-use prettytable::{cell, row, Table};
+use prettytable::{cell, row, Table, format};
 
 use pbr::ProgressBar;
 
@@ -70,6 +70,8 @@ fn get_min_max_avg(values: Vec<Duration>) -> (f32, f32, f32) {
 
 fn create_tables() -> (Table, Table) {
     let mut tables = (Table::new(), Table::new());
+    tables.0.set_format(*format::consts::FORMAT_BOX_CHARS);
+    tables.1.set_format(*format::consts::FORMAT_BOX_CHARS);
     tables.0.add_row(row![
         "Iteration",
         "Datasize (bytes)",
