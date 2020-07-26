@@ -53,7 +53,7 @@ fn get_power_two_sizes(max_power: u32) -> Vec<usize> {
         .collect()
 }
 
-fn get_min_max_avg(values: Vec<Duration>) -> (f32, f32, f32) {
+fn get_min_max_avg(values: &[Duration]) -> (f32, f32, f32) {
     let sum = values.iter().sum::<Duration>().as_secs_f32() * 1000.0;
     let min = values
         .iter()
@@ -70,42 +70,24 @@ fn get_min_max_avg(values: Vec<Duration>) -> (f32, f32, f32) {
     (min as f32, max as f32, sum as f32 / values.len() as f32)
 }
 
-fn create_tables() -> (Table, Table, Table) {
-    let mut tables = (Table::new(), Table::new(), Table::new());
-    tables.0.set_format(*format::consts::FORMAT_BOX_CHARS);
-    tables.1.set_format(*format::consts::FORMAT_BOX_CHARS);
-    tables.2.set_format(*format::consts::FORMAT_BOX_CHARS);
-    tables.0.add_row(row![
-        "Iteration",
-        "Datasize (bytes)",
-        "Datasize (MB)",
-        "min Time (ms)",
-        "max (ms)",
-        "avg Time (ms)",
-        "Bandwidth (MB/s)"
-    ]);
-    tables.1.add_row(row![
-        "Iteration",
-        "Datasize (bytes)",
-        "Datasize (MB)",
-        "min Time (ms)",
-        "max (ms)",
-        "avg Time (ms)",
-        "Bandwidth (MB/s)"
-    ]);
-    tables.2.add_row(row![
-        "Iteration",
-        "Datasize (bytes)",
-        "Datasize (MB)",
-        "min Time (ms)",
-        "max (ms)",
-        "avg Time (ms)",
-        "Bandwidth (MB/s)"
-    ]);    
+fn create_tables() -> Vec<Table> {
+    let mut tables = vec![Table::new(); 3];
+    for t in tables.iter_mut() {
+        t.set_format(*format::consts::FORMAT_BOX_CHARS);
+        t.add_row(row![
+            "Iteration",
+            "Datasize (bytes)",
+            "Datasize (MB)",
+            "min Time (ms)",
+            "max (ms)",
+            "avg Time (ms)",
+            "Bandwidth (MB/s)"
+        ]);
+    }
     tables
 }
 
-fn add_measurement(table: &mut Table, iteration: usize, data_size: usize, timings: Vec<Duration>) {
+fn add_measurement(table: &mut Table, iteration: usize, data_size: usize, timings: &[Duration]) {
     let (min, max, avg) = get_min_max_avg(timings);
     let data_size_mb = data_size as f32 / 1024.0 / 1024.0;
     let bandwidth = data_size_mb / avg * 1000.0;
@@ -153,42 +135,43 @@ async fn run(config: Configuration) {
     pb.format("╢▌▌░╟");
 
     for (iteration, data_size) in data_sizes.iter().enumerate() {
-        let mut upload_data = vec![iteration as u8; *data_size];
+        let upload_data = vec![iteration as u8; *data_size];
         let mut download_data = vec![0 as u8; *data_size];
 
-        let mut upload_times = Vec::with_capacity(config.tries);
-        let mut gpu_gpu_times = Vec::with_capacity(config.tries);
-        let mut download_times = Vec::with_capacity(config.tries);
+        let mut times = vec![Vec::with_capacity(config.tries); 3];
+
         for _ in 1..=config.tries {
             let expected_sum = iteration * data_size;
-            let (upload_time, gpu_gpu_time, download_time) = execute_gpu(
+            let timings = execute_gpu(
                 &device,
                 &queue,
                 expected_sum,
-                &mut upload_data,
+                &upload_data,
                 &mut download_data,
                 config.verify,
             )
             .await;
-            upload_times.push(upload_time);
-            gpu_gpu_times.push(gpu_gpu_time);
-            download_times.push(download_time);
+            for it in times.iter_mut().zip(timings.iter()) {
+                let (times, timing) = it;
+                times.push(*timing);
+            }
         }
-        add_measurement(&mut tables.0, iteration, *data_size, upload_times);
-        add_measurement(&mut tables.1, iteration, *data_size, gpu_gpu_times);
-        add_measurement(&mut tables.2, iteration, *data_size, download_times);
+        for it in tables.iter_mut().zip(times.iter()) {
+            let (mut table, times) = it;
+            add_measurement(&mut table, iteration, *data_size, &times[..]);
+        }
 
         pb.inc();
     }
     pb.finish_print("Finished test");
     println!("Upload times");
-    tables.0.printstd();
+    tables[0].printstd();
 
     println!("GPU/GPU transfer times");
-    tables.1.printstd();
+    tables[1].printstd();
 
     println!("Download times");
-    tables.2.printstd();
+    tables[2].printstd();
 }
 
 async fn execute_gpu(
@@ -198,7 +181,7 @@ async fn execute_gpu(
     host_data_upload: &[u8],
     host_data_download: &mut [u8],
     verify: bool,
-) -> (Duration, Duration, Duration) {
+) -> Vec<Duration> {
     let slice_size = host_data_upload.len() * std::mem::size_of::<u8>();
     let size = slice_size as wgpu::BufferAddress;
 
@@ -222,7 +205,7 @@ async fn execute_gpu(
         let buffer_slice = upload_buffer.slice(..);
         let buffer_future = buffer_slice.map_async(wgpu::MapMode::Write);
         device.poll(wgpu::Maintain::Wait);
-        if let Ok(_) = buffer_future.await {
+        if buffer_future.await.is_ok() {
             let mut data = buffer_slice.get_mapped_range_mut();
             data.copy_from_slice(host_data_upload);
             device.poll(wgpu::Maintain::Wait);
@@ -254,7 +237,7 @@ async fn execute_gpu(
         let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
         device.poll(wgpu::Maintain::Wait);
 
-        if let Ok(_) = buffer_future.await {
+        if buffer_future.await.is_ok() {
             let data = buffer_slice.get_mapped_range();
             host_data_download.copy_from_slice(&data);
             drop(data);
@@ -274,7 +257,7 @@ async fn execute_gpu(
         device.poll(wgpu::Maintain::Wait);
         end_time
     };
-    (upload_time, gpu_gpu_time, download_time)
+    vec![upload_time, gpu_gpu_time, download_time]
 }
 
 pub fn main() {
