@@ -70,10 +70,11 @@ fn get_min_max_avg(values: Vec<Duration>) -> (f32, f32, f32) {
     (min as f32, max as f32, sum as f32 / values.len() as f32)
 }
 
-fn create_tables() -> (Table, Table) {
-    let mut tables = (Table::new(), Table::new());
+fn create_tables() -> (Table, Table, Table) {
+    let mut tables = (Table::new(), Table::new(), Table::new());
     tables.0.set_format(*format::consts::FORMAT_BOX_CHARS);
     tables.1.set_format(*format::consts::FORMAT_BOX_CHARS);
+    tables.2.set_format(*format::consts::FORMAT_BOX_CHARS);
     tables.0.add_row(row![
         "Iteration",
         "Datasize (bytes)",
@@ -92,6 +93,15 @@ fn create_tables() -> (Table, Table) {
         "avg Time (ms)",
         "Bandwidth (MB/s)"
     ]);
+    tables.2.add_row(row![
+        "Iteration",
+        "Datasize (bytes)",
+        "Datasize (MB)",
+        "min Time (ms)",
+        "max (ms)",
+        "avg Time (ms)",
+        "Bandwidth (MB/s)"
+    ]);    
     tables
 }
 
@@ -147,10 +157,11 @@ async fn run(config: Configuration) {
         let mut download_data = vec![0 as u8; *data_size];
 
         let mut upload_times = Vec::with_capacity(config.tries);
+        let mut gpu_gpu_times = Vec::with_capacity(config.tries);
         let mut download_times = Vec::with_capacity(config.tries);
         for _ in 1..=config.tries {
             let expected_sum = iteration * data_size;
-            let (upload_time, download_time) = execute_gpu(
+            let (upload_time, gpu_gpu_time, download_time) = execute_gpu(
                 &device,
                 &queue,
                 expected_sum,
@@ -160,10 +171,12 @@ async fn run(config: Configuration) {
             )
             .await;
             upload_times.push(upload_time);
+            gpu_gpu_times.push(gpu_gpu_time);
             download_times.push(download_time);
         }
         add_measurement(&mut tables.0, iteration, *data_size, upload_times);
-        add_measurement(&mut tables.1, iteration, *data_size, download_times);
+        add_measurement(&mut tables.1, iteration, *data_size, gpu_gpu_times);
+        add_measurement(&mut tables.2, iteration, *data_size, download_times);
 
         pb.inc();
     }
@@ -171,8 +184,11 @@ async fn run(config: Configuration) {
     println!("Upload times");
     tables.0.printstd();
 
-    println!("Download times");
+    println!("GPU/GPU transfer times");
     tables.1.printstd();
+
+    println!("Download times");
+    tables.2.printstd();
 }
 
 async fn execute_gpu(
@@ -182,7 +198,7 @@ async fn execute_gpu(
     host_data_upload: &[u8],
     host_data_download: &mut [u8],
     verify: bool,
-) -> (Duration, Duration) {
+) -> (Duration, Duration, Duration) {
     let slice_size = host_data_upload.len() * std::mem::size_of::<u8>();
     let size = slice_size as wgpu::BufferAddress;
 
@@ -220,7 +236,7 @@ async fn execute_gpu(
     };
 
     // GPU/GPU transfer
-    {
+    let gpu_gpu_time = {
         let start = Instant::now();
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -258,7 +274,7 @@ async fn execute_gpu(
         device.poll(wgpu::Maintain::Wait);
         end_time
     };
-    (upload_time, download_time)
+    (upload_time, gpu_gpu_time, download_time)
 }
 
 pub fn main() {
