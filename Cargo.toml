@@ -8,7 +8,7 @@ description = "A tool to measure the data bandwidth betweeen RAM and GPU"
 readme = "README.md"
 homepage = "https://github.com/niederb/ufe_abe"
 repository = "https://github.com/niederb/ufe_abe"
-keywords = ["cli", "gpu", "bandwidth", "memory", "gpgpu", "webgpu"]
+keywords = ["cli", "gpu", "bandwidth", "gpgpu", "webgpu"]
 categories = ["command-line-utilities"]
 
 [dependencies]
