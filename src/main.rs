@@ -1,7 +1,7 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use structopt::StructOpt;
 
-use prettytable::{cell, row, Table};
+use prettytable::{cell, format, row, Table};
 
 use pbr::ProgressBar;
 
@@ -14,7 +14,7 @@ struct Configuration {
     end_power: usize,
 
     /// The number of iterations per data-size
-    #[structopt(long, short = "t", default_value = "5")]
+    #[structopt(long, short = "t", default_value = "50")]
     tries: usize,
 
     /// Whether to verify the data of the copy. Can take a long time.
@@ -48,193 +48,216 @@ fn get_default_sizes() -> Vec<usize> {
 }
 
 fn get_power_two_sizes(max_power: u32) -> Vec<usize> {
-    (0..=max_power)
+    (2..=max_power)
         .map(|power| (2.0 as f32).powi(power as i32) as usize)
         .collect()
 }
 
-fn get_min_max_avg(values: Vec<Duration>) -> (f32, f32, f32) {
-    let sum = values.iter().sum::<Duration>().as_millis();
+fn get_min_max_avg(values: &[Duration]) -> (f32, f32, f32) {
+    let sum = values.iter().sum::<Duration>().as_secs_f32() * 1000.0;
     let min = values
         .iter()
         .min()
         .unwrap_or(&Duration::from_secs(0))
-        .as_millis();
+        .as_secs_f32()
+        * 1000.0;
     let max = values
         .iter()
         .max()
         .unwrap_or(&Duration::from_secs(0))
-        .as_millis();
+        .as_secs_f32()
+        * 1000.0;
     (min as f32, max as f32, sum as f32 / values.len() as f32)
 }
 
-fn create_tables() -> (Table, Table) {
-    let mut tables = (Table::new(), Table::new());
-    tables.0.add_row(row![
-        "Iteration",
-        "Datasize (MB)",
-        "min Time (ms)",
-        "max (ms)",
-        "avg Time (ms)",
-        "Bandwidth (MB/s)"
-    ]);
-    tables.1.add_row(row![
-        "Iteration",
-        "Datasize (MB)",
-        "min Time (ms)",
-        "max (ms)",
-        "avg Time (ms)",
-        "Bandwidth (MB/s)"
-    ]);
+fn create_tables() -> Vec<Table> {
+    let mut tables = vec![Table::new(); 3];
+    for t in tables.iter_mut() {
+        t.set_format(*format::consts::FORMAT_BOX_CHARS);
+        t.add_row(row![
+            "Iteration",
+            "Datasize (bytes)",
+            "Datasize (MB)",
+            "min Time (ms)",
+            "max (ms)",
+            "avg Time (ms)",
+            "Bandwidth (MB/s)"
+        ]);
+    }
     tables
 }
 
-fn add_measurement(table: &mut Table, iteration: usize, data_size: usize, timings: Vec<Duration>) {
+fn add_measurement(table: &mut Table, iteration: usize, data_size: usize, timings: &[Duration]) {
     let (min, max, avg) = get_min_max_avg(timings);
-    let data_size = data_size as f32 / 1024.0 / 1024.0;
-    let bandwidth = data_size / avg * 1000.0;
-    table.add_row(row![iteration, data_size, min, max, avg, bandwidth]);
+    let data_size_mb = data_size as f32 / 1024.0 / 1024.0;
+    let bandwidth = data_size_mb / avg * 1000.0;
+    table.add_row(row![
+        iteration,
+        data_size,
+        format!("{:.2}", data_size_mb),
+        format!("{:.2}", min),
+        format!("{:.2}", max),
+        format!("{:.2}", avg),
+        format!("{:.2}", bandwidth)
+    ]);
 }
 
 async fn run(config: Configuration) {
-    let adapter = wgpu::Adapter::request(
-        &wgpu::RequestAdapterOptions {
+    let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::Default,
             compatible_surface: None,
-        },
-        wgpu::BackendBit::PRIMARY,
-    )
-    .await
-    .unwrap();
+        })
+        .await
+        .unwrap();
 
     let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor {
-            extensions: wgpu::Extensions {
-                anisotropic_filtering: false,
+        .request_device(
+            &wgpu::DeviceDescriptor {
+                features: wgpu::Features::empty(),
+                limits: wgpu::Limits::default(),
+                shader_validation: true,
             },
-            limits: wgpu::Limits::default(),
-        })
-        .await;
+            None,
+        )
+        .await
+        .unwrap();
 
     let mut tables = create_tables();
 
-    //let data_sizes = get_default_sizes();
-    let data_sizes = get_power_two_sizes(config.end_power as u32);
+    let data_sizes = get_default_sizes();
+    //let data_sizes = get_power_two_sizes(config.end_power as u32);
 
     println!("Running {} tests...", data_sizes.len());
     let mut pb = ProgressBar::new(data_sizes.len() as u64);
     pb.format("╢▌▌░╟");
 
     for (iteration, data_size) in data_sizes.iter().enumerate() {
-        let mut upload_data = vec![iteration as u8; *data_size];
+        let upload_data = vec![iteration as u8; *data_size];
         let mut download_data = vec![0 as u8; *data_size];
 
-        let mut upload_times = Vec::with_capacity(config.tries);
-        let mut download_times = Vec::with_capacity(config.tries);
+        let mut times = vec![Vec::with_capacity(config.tries); 3];
+
         for _ in 1..=config.tries {
             let expected_sum = iteration * data_size;
-            let (upload_time, download_time) = execute_gpu(
-                expected_sum,
+            let timings = execute_gpu(
                 &device,
                 &queue,
-                &mut upload_data,
+                expected_sum,
+                &upload_data,
                 &mut download_data,
                 config.verify,
             )
             .await;
-            upload_times.push(upload_time);
-            download_times.push(download_time);
+            for it in times.iter_mut().zip(timings.iter()) {
+                let (times, timing) = it;
+                times.push(*timing);
+            }
         }
-        add_measurement(&mut tables.0, iteration, *data_size, upload_times);
-        add_measurement(&mut tables.1, iteration, *data_size, download_times);
+        for it in tables.iter_mut().zip(times.iter()) {
+            let (mut table, times) = it;
+            add_measurement(&mut table, iteration, *data_size, &times[..]);
+        }
 
         pb.inc();
     }
     pb.finish_print("Finished test");
     println!("Upload times");
-    tables.0.printstd();
+    tables[0].printstd();
+
+    println!("GPU/GPU transfer times");
+    tables[1].printstd();
 
     println!("Download times");
-    tables.1.printstd();
+    tables[2].printstd();
 }
 
 async fn execute_gpu(
-    expected_sum: usize,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
+    expected_sum: usize,
     host_data_upload: &[u8],
     host_data_download: &mut [u8],
     verify: bool,
-) -> (Duration, Duration) {
+) -> Vec<Duration> {
     let slice_size = host_data_upload.len() * std::mem::size_of::<u8>();
     let size = slice_size as wgpu::BufferAddress;
 
     let upload_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        size,
-        usage: wgpu::BufferUsage::STORAGE
-            | wgpu::BufferUsage::COPY_DST
-            | wgpu::BufferUsage::COPY_SRC
-            | wgpu::BufferUsage::MAP_READ
-            | wgpu::BufferUsage::MAP_WRITE,
         label: None,
+        size,
+        usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
+        mapped_at_creation: false,
+    });
+
+    let download_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        size,
+        usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+        label: None,
+        mapped_at_creation: false,
     });
     device.poll(wgpu::Maintain::Wait);
 
     let upload_time = {
-        let start = std::time::Instant::now();
-        let write_result = upload_buffer.map_write(0, size);
-
+        let start = Instant::now();
+        let buffer_slice = upload_buffer.slice(..);
+        let buffer_future = buffer_slice.map_async(wgpu::MapMode::Write);
         device.poll(wgpu::Maintain::Wait);
-
-        if let Ok(mut mapping) = write_result.await {
+        if buffer_future.await.is_ok() {
+            let mut data = buffer_slice.get_mapped_range_mut();
+            data.copy_from_slice(host_data_upload);
             device.poll(wgpu::Maintain::Wait);
-            mapping.as_slice().copy_from_slice(host_data_upload);
+            drop(data);
+            upload_buffer.unmap();
+        } else {
+            println!("oops");
         }
         device.poll(wgpu::Maintain::Wait);
         start.elapsed()
     };
-    let download_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        size,
-        usage: wgpu::BufferUsage::STORAGE
-            | wgpu::BufferUsage::COPY_DST
-            | wgpu::BufferUsage::COPY_SRC
-            | wgpu::BufferUsage::MAP_READ
-            | wgpu::BufferUsage::MAP_WRITE,
-        label: None,
-    });
-    device.poll(wgpu::Maintain::Wait);
 
-    let mut encoder =
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    encoder.copy_buffer_to_buffer(&upload_buffer, 0, &download_buffer, 0, size);
-
-    queue.submit(&[encoder.finish()]);
-    device.poll(wgpu::Maintain::Wait);
+    // GPU/GPU transfer
+    let gpu_gpu_time = {
+        let start = Instant::now();
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.copy_buffer_to_buffer(&upload_buffer, 0, &download_buffer, 0, size);
+        queue.submit(Some(encoder.finish()));
+        device.poll(wgpu::Maintain::Wait);
+        start.elapsed()
+    };
 
     let download_time = {
-        let start = std::time::Instant::now();
-        let buffer_future = download_buffer.map_read(0, size);
+        let start = Instant::now();
+        let mut end_time = Duration::from_secs(0);
+
+        let buffer_slice = download_buffer.slice(..);
+        let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
         device.poll(wgpu::Maintain::Wait);
 
-        let result = buffer_future.await;
-        let mut end_time = start.elapsed();
-
-        if let Ok(mapping) = result {
-            host_data_download.copy_from_slice(mapping.as_slice());
+        if buffer_future.await.is_ok() {
+            let data = buffer_slice.get_mapped_range();
+            host_data_download.copy_from_slice(&data);
+            drop(data);
+            download_buffer.unmap();
             end_time = start.elapsed();
 
             if verify {
                 let mut total: usize = 0;
-                for item in mapping.as_slice() {
+                for item in host_data_download {
                     total += *item as usize;
                 }
                 assert!(total == expected_sum);
             }
+        } else {
+            println!("oops");
         }
         device.poll(wgpu::Maintain::Wait);
         end_time
     };
-    (upload_time, download_time)
+    vec![upload_time, gpu_gpu_time, download_time]
 }
 
 pub fn main() {
