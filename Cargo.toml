@@ -1,6 +1,6 @@
 [package]
 name = "ufe_abe"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Thomas Niederberger <thomas@niederb.ch>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
