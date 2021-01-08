@@ -107,7 +107,7 @@ async fn run(config: Configuration) {
 
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::Default,
+            power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
         })
         .await
@@ -116,9 +116,10 @@ async fn run(config: Configuration) {
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
+                //label: None,
                 features: wgpu::Features::empty(),
                 limits: wgpu::Limits::default(),
-                shader_validation: true,
+                shader_validation: false,
             },
             None,
         )
