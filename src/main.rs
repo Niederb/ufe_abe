@@ -116,10 +116,9 @@ async fn run(config: Configuration) {
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
-                //label: None,
+                label: None,
                 features: wgpu::Features::empty(),
                 limits: wgpu::Limits::default(),
-                shader_validation: false,
             },
             None,
         )
