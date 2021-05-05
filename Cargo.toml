@@ -13,10 +13,11 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 #wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", branch = "master" }
-wgpu = "0.8"
+wgpu = "0.7"
 futures = "0.3"
 prettytable-rs = "0.8"
 structopt = "0.3"
 pbr = "1.0"
 simplelog = "0.10"
 log = "0.4"
+bytemuck = { version = "1.4", features = ["derive"] }

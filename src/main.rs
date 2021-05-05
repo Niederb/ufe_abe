@@ -1,9 +1,17 @@
+use std::mem;
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
 
 use prettytable::{cell, format, row, Table};
 
 use pbr::ProgressBar;
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct TimestampData {
+    start: u64,
+    end: u64,
+}
 
 /// Configuration struct gpu benchmarking
 #[derive(StructOpt, Debug)]
@@ -15,7 +23,7 @@ struct Configuration {
 
     /// The number of iterations per data-size
     #[structopt(long, short = "t", default_value = "50")]
-    tries: usize,
+    tries: u32,
 
     /// Whether to verify the data of the copy. Can take a long time.
     #[structopt(long, short = "v")]
@@ -112,12 +120,14 @@ async fn run(config: Configuration) {
         })
         .await
         .unwrap();
+    println!("using adapter: {:?}", adapter);
 
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
                 label: None,
-                features: wgpu::Features::empty(),
+                features: wgpu::Features::TIMESTAMP_QUERY
+                    | wgpu::Features::PIPELINE_STATISTICS_QUERY,
                 limits: wgpu::Limits::default(),
             },
             None,
@@ -126,6 +136,7 @@ async fn run(config: Configuration) {
         .unwrap();
 
     let mut tables = create_tables();
+    let timestamp_period = adapter.get_timestamp_period();
 
     let data_sizes = get_default_sizes();
     //let data_sizes = get_power_two_sizes(config.end_power as u32);
@@ -138,7 +149,7 @@ async fn run(config: Configuration) {
         let upload_data = vec![iteration as u8; *data_size];
         let mut download_data = vec![0 as u8; *data_size];
 
-        let mut times = vec![Vec::with_capacity(config.tries); 3];
+        let mut times = vec![Vec::with_capacity(config.tries as usize); 3];
 
         for _ in 1..=config.tries {
             let expected_sum = iteration * data_size;
@@ -151,6 +162,7 @@ async fn run(config: Configuration) {
                 config.verify,
             )
             .await;
+
             for it in times.iter_mut().zip(timings.iter()) {
                 let (times, timing) = it;
                 times.push(*timing);
@@ -218,15 +230,39 @@ async fn execute_gpu(
         start.elapsed()
     };
 
+    let timing_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("timing buffer"),
+        size: 2 * mem::size_of::<u64>() as wgpu::BufferAddress,
+        usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
+        count: 2 as u32,
+        ty: wgpu::QueryType::Timestamp,
+    });
     // GPU/GPU transfer
     let gpu_gpu_time = {
         let start = Instant::now();
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.write_timestamp(&query_set, 0);
         encoder.copy_buffer_to_buffer(&upload_buffer, 0, &download_buffer, 0, size);
+        encoder.write_timestamp(&query_set, 1);
+        encoder.resolve_query_set(&query_set, 0..2, &timing_buffer, 0);
         queue.submit(Some(encoder.finish()));
         device.poll(wgpu::Maintain::Wait);
-        start.elapsed()
+
+        let _ = timing_buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read);
+        // Wait for device to be done rendering mipmaps
+        device.poll(wgpu::Maintain::Wait);
+        let view = timing_buffer.slice(..).get_mapped_range();
+        // Convert the raw data into a useful structure
+        let data: &TimestampData = bytemuck::from_bytes(&*view);
+        //println!("sdf: {} us", (data.end - data.start)/1000);
+        Duration::from_nanos(data.end - data.start)
+        //start.elapsed()
     };
 
     let download_time = {
