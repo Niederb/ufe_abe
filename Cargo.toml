@@ -3,6 +3,7 @@ name = "ufe_abe"
 version = "0.0.2"
 authors = ["Thomas Niederberger <thomas@niederb.ch>"]
 edition = "2018"
+resolver = "2"
 license = "MIT OR Apache-2.0"
 description = "A tool to measure the data bandwidth betweeen RAM and GPU"
 readme = "README.md"
@@ -12,8 +13,8 @@ keywords = ["cli", "gpu", "bandwidth", "gpgpu", "webgpu"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-#wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", branch = "master" }
-wgpu = "0.7"
+#wgpu = { git = "https://github.com/gfx-rs/wgpu", branch = "master" }
+wgpu = "0.11"
 futures = "0.3"
 prettytable-rs = "0.8"
 structopt = "0.3"

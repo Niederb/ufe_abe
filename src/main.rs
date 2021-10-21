@@ -111,12 +111,13 @@ fn add_measurement(table: &mut Table, iteration: usize, data_size: usize, timing
 }
 
 async fn run(config: Configuration) {
-    let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+    let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
 
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
+            force_fallback_adapter: false,
         })
         .await
         .unwrap();
@@ -136,7 +137,7 @@ async fn run(config: Configuration) {
         .unwrap();
 
     let mut tables = create_tables();
-    let timestamp_period = adapter.get_timestamp_period();
+    let timestamp_period = queue.get_timestamp_period();
 
     let data_sizes = get_default_sizes();
     //let data_sizes = get_power_two_sizes(config.end_power as u32);
@@ -200,13 +201,13 @@ async fn execute_gpu(
     let upload_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
         size,
-        usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
+        usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
 
     let download_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         size,
-        usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         label: None,
         mapped_at_creation: false,
     });
@@ -233,10 +234,11 @@ async fn execute_gpu(
     let timing_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("timing buffer"),
         size: 2 * mem::size_of::<u64>() as wgpu::BufferAddress,
-        usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
     let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
+        label: None,
         count: 2 as u32,
         ty: wgpu::QueryType::Timestamp,
     });
