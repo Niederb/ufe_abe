@@ -57,7 +57,7 @@ fn get_default_sizes() -> Vec<usize> {
 
 fn get_power_two_sizes(max_power: u32) -> Vec<usize> {
     (2..=max_power)
-        .map(|power| (2.0 as f32).powi(power as i32) as usize)
+        .map(|power| 2.0_f32.powi(power as i32) as usize)
         .collect()
 }
 
@@ -148,7 +148,7 @@ async fn run(config: Configuration) {
 
     for (iteration, data_size) in data_sizes.iter().enumerate() {
         let upload_data = vec![iteration as u8; *data_size];
-        let mut download_data = vec![0 as u8; *data_size];
+        let mut download_data = vec![0; *data_size];
 
         let mut times = vec![Vec::with_capacity(config.tries as usize); 3];
 
@@ -170,8 +170,8 @@ async fn run(config: Configuration) {
             }
         }
         for it in tables.iter_mut().zip(times.iter()) {
-            let (mut table, times) = it;
-            add_measurement(&mut table, iteration, *data_size, &times[..]);
+            let (table, times) = it;
+            add_measurement(table, iteration, *data_size, &times[..]);
         }
 
         pb.inc();
@@ -239,7 +239,7 @@ async fn execute_gpu(
     });
     let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
         label: None,
-        count: 2 as u32,
+        count: 2,
         ty: wgpu::QueryType::Timestamp,
     });
     // GPU/GPU transfer
