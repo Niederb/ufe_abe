@@ -216,9 +216,11 @@ async fn execute_gpu(
     let upload_time = {
         let start = Instant::now();
         let buffer_slice = upload_buffer.slice(..);
-        let buffer_future = buffer_slice.map_async(wgpu::MapMode::Write);
+        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
+        buffer_slice.map_async(wgpu::MapMode::Write, move |v| sender.send(v).unwrap());
         device.poll(wgpu::Maintain::Wait);
-        if buffer_future.await.is_ok() {
+
+        if let Some(Ok(())) = receiver.receive().await {
             let mut data = buffer_slice.get_mapped_range_mut();
             data.copy_from_slice(host_data_upload);
             device.poll(wgpu::Maintain::Wait);
@@ -254,17 +256,22 @@ async fn execute_gpu(
         queue.submit(Some(encoder.finish()));
         device.poll(wgpu::Maintain::Wait);
 
+        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
         let _ = timing_buffer
-        .slice(..)
-        .map_async(wgpu::MapMode::Read);
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
         // Wait for device to be done rendering mipmaps
         device.poll(wgpu::Maintain::Wait);
-        let view = timing_buffer.slice(..).get_mapped_range();
-        // Convert the raw data into a useful structure
-        let data: &TimestampData = bytemuck::from_bytes(&*view);
-        //println!("sdf: {} us", (data.end - data.start)/1000);
-        Duration::from_nanos(data.end - data.start)
-        //start.elapsed()
+        if let Some(Ok(())) = receiver.receive().await {
+            let view = timing_buffer.slice(..).get_mapped_range();
+            // Convert the raw data into a useful structure
+            let data: &TimestampData = bytemuck::from_bytes(&*view);
+            //println!("sdf: {} us", (data.end - data.start)/1000);
+            Duration::from_nanos(data.end - data.start)
+            //start.elapsed()
+        } else {
+            Duration::default()
+        }
     };
 
     let download_time = {
@@ -272,10 +279,12 @@ async fn execute_gpu(
         let mut end_time = Duration::from_secs(0);
 
         let buffer_slice = download_buffer.slice(..);
-        let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
+
+        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
         device.poll(wgpu::Maintain::Wait);
 
-        if buffer_future.await.is_ok() {
+        if let Some(Ok(())) = receiver.receive().await {
             let data = buffer_slice.get_mapped_range();
             host_data_download.copy_from_slice(&data);
             drop(data);
@@ -287,7 +296,7 @@ async fn execute_gpu(
                 for item in host_data_download {
                     total += *item as usize;
                 }
-                assert!(total == expected_sum);
+                assert_eq!(expected_sum, total);
             }
         } else {
             println!("oops");
