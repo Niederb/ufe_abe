@@ -1,6 +1,6 @@
 [package]
 name = "ufe_abe"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Thomas Niederberger <thomas@niederb.ch>"]
 edition = "2021"
 resolver = "2"
@@ -14,12 +14,12 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 #wgpu = { git = "https://github.com/gfx-rs/wgpu", branch = "master" }
-wgpu = "0.13"
+wgpu = "0.14"
 futures = "0.3"
-prettytable-rs = "0.8"
+prettytable-rs = "0.9"
 structopt = "0.3"
 pbr = "1.0"
 simplelog = "0.12"
 log = "0.4"
 bytemuck = { version = "1.4", features = ["derive"] }
-futures-intrusive = "0.4"
+futures-intrusive = "0.5"
