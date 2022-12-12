@@ -3,7 +3,6 @@ name = "ufe_abe"
 version = "0.0.5"
 authors = ["Thomas Niederberger <thomas@niederb.ch>"]
 edition = "2021"
-resolver = "2"
 license = "MIT OR Apache-2.0"
 description = "A tool to measure the data bandwidth betweeen RAM and GPU"
 readme = "README.md"
