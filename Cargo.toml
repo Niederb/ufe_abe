@@ -15,7 +15,7 @@ categories = ["command-line-utilities"]
 #wgpu = { git = "https://github.com/gfx-rs/wgpu", branch = "master" }
 wgpu = "0.14"
 futures = "0.3"
-prettytable-rs = "0.9"
+prettytable-rs = "0.10"
 structopt = "0.3"
 pbr = "1.0"
 simplelog = "0.12"
